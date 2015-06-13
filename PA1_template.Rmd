@@ -1,0 +1,160 @@
+---
+title: "Reproducible Research Assessment 1"
+author: "JJ Brière"
+date: "Friday, June 12, 2015"
+output: html_document
+---
+Note: this code works only with a French setup
+
+### First we're going to download the data and get a quick overview
+Note that the file will be downloaded in the working directory
+
+```{r "Getting data"}
+url <- "http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(url,destfile="data.zip")
+data <- read.csv(unzip("data.zip"))
+summary(data)
+```
+
+##Notice here that the maximum 'interval' is 2355  
+That shows that 'intervals' are named with a %H%m label (at 1:00 am the interval is named 100 and not 60). That way the data$interval doesn't constitute a continuous serie of data: it's 5,10,15,...,50,55,100,105  
+So we are going to constuct a **continuous** series of intervals to add to our data:
+
+```{r "adding a continuous time intervall numeration"}
+continterval <- as.integer(data$interval/100)*60+data$interval%%100
+data <- data.frame(data,continterval)
+head(data,3)
+tail(data,3)
+```
+
+# Average of steps taken per day
+
+### Calculation of the number of steps taken per day
+
+
+```{r "Sum of steps per day"}
+Stepsperday <- sapply(split(data$steps,data$date),sum,na.rm=TRUE)
+Stepsperday
+```
+
+### Now we make a histogram of the total number of steps taken each day
+
+```{r "hist"}
+hist(Stepsperday,breaks=10)
+```
+
+### Calculation of mean and median of the total number of steps taken per day
+
+```{r "mean and median"}
+meanSteps <- mean(Stepsperday)
+medianSteps <- median(Stepsperday)
+print(paste("The average number of steps taken per day is ", meanSteps))
+print(paste("The median number of steps taken per day is ", medianSteps))
+```
+
+# Daily activity pattern
+### Now let's have a look at the average number of steps taken accross all days
+here we'd rather not use the discontinuous data[interval] to plot the x axis:  
+we are going to use the data[continterval] we've created before
+
+```{r "time series of the average number of steps taken per 5min intervalle during the day"}
+
+timeserie <- sapply(split(data$steps,data$continterval),mean,na.rm=TRUE)
+plot(x=names(timeserie),timeserie,type="l",ylab="Steps per 5 minutes intervalle",xlab="minutes after midnight",col="red",main="Pattern of steps taken in an average day")
+```
+
+### Calculation of the maximum number of steps, on average accross all the days
+```{r "find max"}
+
+maxSteps <- timeserie[timeserie==max(timeserie)]
+minutes=as.integer(names(maxSteps))
+print(paste("the maximum number of steps per day is taken at the ",
+      minutes, "minutes after midnight"))
+
+heure <- as.integer(minutes/60)
+min <- minutes - 60 * heure
+timemax <- paste(heure,":",min,sep="")
+print(paste("this is around",timemax, "h"))
+
+```
+
+# Cleaning of the data
+### Looking for NA values
+
+```{r "check of NA value"}
+for (i in names(data)) {
+        s <- sum(is.na(data[,i]))
+        print(paste("there are",s,"NA in the values of ",i))
+}
+```
+
+### In order to avoid bias due to missing value
+we are going to fill NA with the average number of steps takin in the 5-minutes interval
+
+
+```{r "filling the NA"}
+#CorrectNA take a data set for one day and return a dataset with replacement of NA values in "steps" by the values of ref_vect
+CorrectNA <- function(datasplit,ref_vect) {
+        tempdata <- datasplit
+        temp <- tempdata$steps
+        temp[is.na(temp)] <- ref_vect[is.na(temp)]
+        tempdata$steps <- temp
+        tempdata
+}
+# remember that timeserie is the average steps by interval, it's our ref_vect
+
+CorrectData <- split(data,data$date)
+for (i in names(CorrectData)) {
+        CorrectData[[i]] <- CorrectNA(CorrectData[[i]],timeserie)
+        } # I was unable to use a lapply function to avoid that for loop...
+CorrectData <- unsplit(CorrectData,data$date)
+summary(CorrectData)
+```
+
+### With the "Corrected Data" we trace an histogram of the total number of steps taken each day 
+
+```{r "Hist of sum of steps per day"}
+Stepsperdaycor <- sapply(split(CorrectData$steps,CorrectData$date),sum,na.rm=TRUE)
+hist(Stepsperdaycor,breaks=10)
+meanStepscor <- mean(Stepsperdaycor)
+medianStepscor <- median(Stepsperdaycor)
+print(paste("The average number of steps taken per day is ", as.integer(meanStepscor)))
+print(paste("The median number of steps taken per day is ", as.integer(medianStepscor)))
+```
+Here we can see that the 'correction' of NA value by the  numbers of steps taken in average day at the same intervall, lead to numerous entire days corrected. This can be suspected with the first histogram (before correction). There was 10 days where no steps were recorded. Probably these days only recoded NA. By replacing the NA with the average daily pattern, we've artificially "enriched" our dataset with some "average day". That's why median and mean numbers of steps taken per day are equal. The fact that the mean has increased is due to the replacement of these NA days (which average steps per day were estimated at 0) by average days (with non null average steps per day)
+
+
+# differences in activity patterns between weekdays and weekends
+
+## First we'll add the information of the weekday to the data
+
+```{r "adding week day"}
+Days <- weekdays(as.POSIXct(data$date,format="%Y-%m-%d"))
+WeekDays <- Days
+# Note that my computer is set up in French
+WeekDays[Days=="lundi"] <- "Weekday"
+WeekDays[Days=="mardi"] <- "Weekday"
+WeekDays[Days=="mercredi"] <- "Weekday"
+WeekDays[Days=="jeudi"] <- "Weekday"
+WeekDays[Days=="vendredi"] <- "Weekday"
+WeekDays[Days=="samedi"] <- "Weekend"
+WeekDays[Days=="dimanche"] <- "Weekend"
+data2 <- data.frame(data,Days=Days,Weekdays=WeekDays)
+summary(data2)
+```
+
+# Now let see the difference of pattern between week days and week ends
+
+```{r "plotting pattern depending on week day"}
+splitdata <- split(data2,data2$Weekdays)
+timeserieWeekday <- sapply(split(splitdata[["Weekday"]]$steps,splitdata[["Weekday"]]$continterval),mean,na.rm=TRUE)
+timeserieWeekend <- sapply(split(splitdata[["Weekend"]]$steps,splitdata[["Weekend"]]$continterval),mean,na.rm=TRUE)
+
+plot(x=names(timeserieWeekday),y=timeserieWeekday,type="l",ylab="Steps per 5 minutes intervalle",xlab="minutes after midnight",col="red")
+points(x=names(timeserieWeekend),y=timeserieWeekend,type="l",ylab="Steps per 5 minutes intervalle",xlab="minutes after midnight",col="blue")
+legend("topright",lty=1,col=c("red","blue"),legend=c("Weekday","Weekend"))
+```
+
+We can see a shift in the activity. There are less steps taken in the morning ans more in the evening... I guess we shouldn't be surprised of that result!  
+  
+Thanks for reading.
